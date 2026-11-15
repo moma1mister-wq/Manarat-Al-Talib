@@ -4,8 +4,19 @@ export type NavKey =
   | "quran"
   | "exercises"
   | "adhkar"
-  | "hajj"
   | "settings";
+
+export type AlarmToneKey = "prayer" | "adhkar" | "quran" | "exercise" | "study";
+
+declare global {
+  interface Window {
+    manaratDesktop?: {
+      showNotification(title: string, body: string): Promise<boolean>;
+      saveCustomTone(key: AlarmToneKey, fileName: string, bytes: Uint8Array): Promise<string>;
+      loadCustomTones(): Promise<Partial<Record<AlarmToneKey, string>>>;
+    };
+  }
+}
 
 export interface QuranVerse {
   s: number;

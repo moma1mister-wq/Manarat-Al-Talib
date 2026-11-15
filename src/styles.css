@@ -990,12 +990,6 @@ a {
   color: #18a66a;
 }
 
-.hajj-quick {
-  border-color: #ffedc5;
-  background: linear-gradient(145deg, #fffaf0, #fff1d2);
-  color: #bb830d;
-}
-
 .exercise-quick {
   border-color: #dce7fa;
   background: linear-gradient(145deg, #f4f8ff, #e6efff);
@@ -2212,8 +2206,7 @@ a {
   font-size: 9px;
 }
 
-.adhkar-mode-tabs,
-.hajj-tabs {
+.adhkar-mode-tabs {
   display: flex;
   gap: 6px;
   overflow-x: auto;
@@ -2221,8 +2214,7 @@ a {
   border-top: 1px solid var(--border);
 }
 
-.adhkar-mode-tabs button,
-.hajj-tabs button {
+.adhkar-mode-tabs button {
   display: inline-flex;
   min-height: 34px;
   align-items: center;
@@ -2239,8 +2231,7 @@ a {
   white-space: nowrap;
 }
 
-.adhkar-mode-tabs button.active,
-.hajj-tabs button.active {
+.adhkar-mode-tabs button.active {
   background: #eaf9f1;
   color: #189d61;
 }
@@ -2559,236 +2550,6 @@ a {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #f2f0f5;
-}
-
-.hajj-hero {
-  position: relative;
-  overflow: hidden;
-  padding: 24px 27px;
-  border-radius: 22px;
-  background:
-    radial-gradient(circle at 90% 15%, rgba(255, 255, 255, 0.17) 0 2px, transparent 3px 100%),
-    linear-gradient(125deg, #9a6b16, #d6a53c 65%, #e6bd65);
-  box-shadow: 0 11px 26px rgba(149, 105, 26, 0.16);
-  color: #fff;
-}
-
-.hajj-hero-symbol {
-  position: absolute;
-  top: 23px;
-  inset-inline-end: 29px;
-  display: grid;
-  width: 68px;
-  height: 68px;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.34);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.13);
-}
-
-.hajj-hero .eyebrow {
-  color: rgba(255, 255, 255, 0.78);
-}
-
-.hajj-hero h2 {
-  max-width: 620px;
-  margin: 7px 80px 3px 0;
-  font-size: 20px;
-  font-weight: 900;
-}
-
-.hajj-hero > p {
-  max-width: 600px;
-  margin: 0;
-  color: rgba(255, 255, 255, 0.83);
-  font-size: 11px;
-}
-
-.hajj-stat-row {
-  display: flex;
-  max-width: 430px;
-  align-items: center;
-  gap: 14px;
-  margin-top: 16px;
-}
-
-.hajj-stat-row > div:first-child {
-  display: grid;
-  flex: 0 0 auto;
-}
-
-.hajj-stat-row strong {
-  font-size: 17px;
-}
-
-.hajj-stat-row span,
-.hajj-stat-row small {
-  color: rgba(255, 255, 255, 0.76);
-  font-size: 9px;
-}
-
-.hajj-progress {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: 8px;
-}
-
-.hajj-progress .progress-track {
-  background: rgba(255, 255, 255, 0.24);
-}
-
-.hajj-progress .progress-track span {
-  background: #fff;
-}
-
-.hajj-tabs {
-  width: fit-content;
-  padding: 5px;
-  border: 1px solid #f1e8d0;
-  border-radius: 13px;
-  background: #fff;
-}
-
-.hajj-tabs button.active {
-  background: #fff4d9;
-  color: #a8791a;
-}
-
-.hajj-steps-panel {
-  padding: 18px 21px;
-}
-
-.ritual-timeline {
-  display: grid;
-}
-
-.ritual-step {
-  position: relative;
-  display: flex;
-  gap: 14px;
-  padding: 13px 0;
-  border-bottom: 1px solid #f0edf4;
-}
-
-.ritual-step:last-child {
-  border-bottom: 0;
-}
-
-.ritual-step:not(:last-child)::after {
-  position: absolute;
-  top: 45px;
-  bottom: -14px;
-  inset-inline-start: 16px;
-  width: 1px;
-  background: #e9e4f0;
-  content: "";
-}
-
-.ritual-check {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  width: 34px;
-  height: 34px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid #e7e1ef;
-  border-radius: 12px;
-  background: #fff;
-  color: #8f86a0;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 900;
-}
-
-.ritual-step.done .ritual-check {
-  border-color: var(--mint);
-  background: var(--mint);
-  color: #fff;
-}
-
-.ritual-step-content {
-  min-width: 0;
-  flex: 1;
-}
-
-.ritual-step-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ritual-step-title h3 {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.ritual-step-title span {
-  padding: 3px 7px;
-  border-radius: 20px;
-  background: #e7f8ee;
-  color: #1b9f61;
-  font-size: 9px;
-  font-weight: 800;
-}
-
-.ritual-step-content p {
-  margin: 4px 0 0;
-  color: #898194;
-  font-size: 10px;
-  line-height: 1.8;
-}
-
-.hajj-disclaimer {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 11px;
-  padding: 11px;
-  border-radius: 12px;
-  background: #fff9eb;
-  color: #8c712d;
-  font-size: 10px;
-  line-height: 1.8;
-}
-
-.hajj-disclaimer svg {
-  flex: 0 0 auto;
-  margin-top: 2px;
-}
-
-.hajj-alarm-panel {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 17px;
-}
-
-.hajj-alarm-copy {
-  display: grid;
-  gap: 2px;
-  flex: 1;
-}
-
-.hajj-alarm-copy strong {
-  font-size: 11px;
-}
-
-.hajj-alarm-copy small {
-  color: var(--text-muted);
-  font-size: 9px;
-}
-
-.hajj-alarm-panel input[type="time"] {
-  min-height: 35px;
-  padding: 4px 8px;
-  border: 1px solid #e8e4ef;
-  border-radius: 9px;
-  background: var(--card);
-  color: var(--text);
-  font-size: 11px;
 }
 
 .settings-layout {
@@ -3418,15 +3179,13 @@ html[data-theme="dark"] .schedule-item,
 html[data-theme="dark"] .schedule-footer,
 html[data-theme="dark"] .settings-row,
 html[data-theme="dark"] .alarm-setting-row,
-html[data-theme="dark"] .dhikr-card-footer,
-html[data-theme="dark"] .ritual-step {
+html[data-theme="dark"] .dhikr-card-footer {
   border-color: #352a48;
 }
 
 html[data-theme="dark"] .schedule-title-line h3,
 html[data-theme="dark"] .dhikr-text,
 html[data-theme="dark"] .exercise-card h3,
-html[data-theme="dark"] .ritual-step-title h3,
 html[data-theme="dark"] .settings-row strong,
 html[data-theme="dark"] .master-notification strong {
   color: var(--text);
@@ -3436,7 +3195,6 @@ html[data-theme="dark"] .schedule-info p,
 html[data-theme="dark"] .schedule-info small,
 html[data-theme="dark"] .exercise-muscles,
 html[data-theme="dark"] .dhikr-reference,
-html[data-theme="dark"] .ritual-step-content p,
 html[data-theme="dark"] .field-label {
   color: #aaa0ba;
 }
@@ -3966,44 +3724,6 @@ html[data-theme="dark"] .mushaf-current {
 
   .sebha-actions .field-label {
     min-width: 0;
-  }
-
-  .hajj-hero {
-    padding: 19px;
-  }
-
-  .hajj-hero-symbol {
-    top: 19px;
-    inset-inline-end: 17px;
-    width: 51px;
-    height: 51px;
-  }
-
-  .hajj-hero-symbol svg {
-    width: 29px;
-  }
-
-  .hajj-hero h2 {
-    max-width: 290px;
-    margin-inline-end: 45px;
-    font-size: 15px;
-  }
-
-  .hajj-hero > p {
-    max-width: 290px;
-    font-size: 9px;
-  }
-
-  .hajj-alarm-panel {
-    flex-wrap: wrap;
-  }
-
-  .hajj-alarm-copy {
-    min-width: 150px;
-  }
-
-  .hajj-alarm-panel input[type="time"] {
-    margin-inline-start: 50px;
   }
 
   .settings-side {

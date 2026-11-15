@@ -25,10 +25,8 @@ import {
   ChevronRight,
   CircleHelp,
   Clock3,
-  Compass,
   Dumbbell,
   FileText,
-  Footprints,
   Heart,
   Home,
   List,
@@ -66,6 +64,7 @@ import {
   type PrayerMethod,
 } from "./data";
 import type {
+  AlarmToneKey,
   AppData,
   HisnChapter,
   HisnItem,
@@ -105,18 +104,16 @@ type Store = {
   adhkarAlarmEnabled: boolean;
   sebhaCount: number;
   sebhaTarget: number;
-  hajjProgress: Record<string, boolean>;
 };
 
 type StoreSetter = Dispatch<SetStateAction<Store>>;
-type ToneKey = "general" | "prayer" | "adhkar" | "quran" | "hajj" | "exercise" | "study";
+type ToneKey = "general" | AlarmToneKey;
 
 const defaultTones: Record<ToneKey, string> = {
   general: "study_tone",
   prayer: "adhan",
   adhkar: "adhkar_tone",
   quran: "study_tone",
-  hajj: "adhkar_tone",
   exercise: "exercise_tone",
   study: "study_tone",
 };
@@ -138,7 +135,6 @@ const navItems: {
   { key: "quran", label: "المصحف", icon: BookOpen },
   { key: "exercises", label: "التمارين", icon: Dumbbell },
   { key: "adhkar", label: "الأذكار", icon: Sparkles },
-  { key: "hajj", label: "الحج والعمرة", icon: Compass },
   { key: "settings", label: "الإعدادات", icon: Settings },
 ];
 
@@ -147,7 +143,6 @@ const notificationLabels: Record<ToneKey, string> = {
   prayer: "الصلاة والأذان",
   adhkar: "الأذكار والسبحة",
   quran: "ورد القرآن",
-  hajj: "الحج والعمرة",
   exercise: "التمارين",
   study: "المذاكرة والجدول",
 };
@@ -177,7 +172,6 @@ const defaultStore = (data: AppData): Store => ({
     prayer: true,
     adhkar: true,
     quran: true,
-    hajj: true,
     exercise: true,
     study: true,
   },
@@ -185,14 +179,12 @@ const defaultStore = (data: AppData): Store => ({
     prayer: true,
     adhkar: true,
     quran: true,
-    hajj: true,
     exercise: true,
     study: true,
   },
   alarmTimes: {
     adhkar: "07:00",
     quran: "21:00",
-    hajj: "17:30",
     exercise: "16:45",
     study: "08:00",
   },
@@ -201,7 +193,6 @@ const defaultStore = (data: AppData): Store => ({
   adhkarAlarmEnabled: true,
   sebhaCount: 0,
   sebhaTarget: 33,
-  hajjProgress: {},
 });
 
 function readStore(data: AppData) {
@@ -209,18 +200,26 @@ function readStore(data: AppData) {
   try {
     const saved = window.localStorage.getItem("manarat-al-talib");
     if (!saved) return { store: initial, warning: "" };
-    const parsed = JSON.parse(saved) as Partial<Store>;
+    const parsed = JSON.parse(saved) as Partial<Store> & { hajjProgress?: unknown };
+    delete parsed.hajjProgress;
+    const notifications = { ...initial.notifications, ...parsed.notifications };
+    delete notifications.hajj;
+    const alertSounds = { ...initial.alertSounds, ...parsed.alertSounds };
+    delete alertSounds.hajj;
+    const alarmTimes = { ...initial.alarmTimes, ...parsed.alarmTimes };
+    delete alarmTimes.hajj;
+    const tones: Record<string, string> = { ...defaultTones, ...parsed.tones };
+    delete tones.hajj;
     return {
       store: {
         ...initial,
         ...parsed,
-        notifications: { ...initial.notifications, ...parsed.notifications },
-        alertSounds: { ...initial.alertSounds, ...parsed.alertSounds },
-        alarmTimes: { ...initial.alarmTimes, ...parsed.alarmTimes },
-        tones: { ...defaultTones, ...parsed.tones },
+        notifications,
+        alertSounds,
+        alarmTimes,
+        tones,
         prayerOffsets: { ...initial.prayerOffsets, ...parsed.prayerOffsets },
         adhkarCounts: { ...initial.adhkarCounts, ...parsed.adhkarCounts },
-        hajjProgress: { ...initial.hajjProgress, ...parsed.hajjProgress },
         schedule: Array.isArray(parsed.schedule) ? parsed.schedule : data.schedule,
         prices: Array.isArray(parsed.prices) ? parsed.prices : data.prices,
         bookmarkedPages: Array.isArray(parsed.bookmarkedPages)
@@ -301,6 +300,7 @@ function StudentApp({ data }: { data: AppData }) {
   const [customTones, setCustomTones] = useState<Partial<Record<ToneKey, string>>>({});
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastAlarmRef = useRef("");
+  const previousStudyRunningRef = useRef(store.studyRunning);
 
   const prayer = useMemo(
     () =>
@@ -330,6 +330,24 @@ function StudentApp({ data }: { data: AppData }) {
   }, [store]);
 
   useEffect(() => {
+    const desktop = window.manaratDesktop;
+    if (!desktop) return;
+    let active = true;
+    void desktop.loadCustomTones().then(
+      (tones) => {
+        if (active) setCustomTones(tones);
+      },
+      (error: unknown) => {
+        console.error("Could not load saved custom alert sounds", error);
+        if (active) setStatus("تعذر تحميل النغمات المخصصة المحفوظة.");
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(interval);
   }, []);
@@ -337,6 +355,14 @@ function StudentApp({ data }: { data: AppData }) {
   const stopSound = () => {
     audioRef.current?.pause();
     audioRef.current = null;
+  };
+
+  const updateCustomTone = (key: ToneKey, tone: string) => {
+    setCustomTones((current) => {
+      const previous = current[key];
+      if (previous?.startsWith("blob:")) URL.revokeObjectURL(previous);
+      return { ...current, [key]: tone };
+    });
   };
 
   const playTone = (key: ToneKey, preview = false) => {
@@ -355,6 +381,25 @@ function StudentApp({ data }: { data: AppData }) {
     );
   };
 
+  const showSystemNotification = (body: string) => {
+    const desktop = window.manaratDesktop;
+    if (desktop) {
+      void desktop.showNotification("منارة الطالب", body).then(
+        (shown) => {
+          if (!shown) setStatus("إشعارات Windows غير مدعومة على هذا الجهاز.");
+        },
+        (error: unknown) => {
+          console.error("System notification failed", error);
+          setStatus("تعذر إرسال الإشعار؛ تحقق من إعدادات إشعارات Windows.");
+        },
+      );
+      return;
+    }
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification("منارة الطالب", { body });
+    }
+  };
+
   useEffect(() => {
     if (!store.studyRunning) return;
     const interval = window.setInterval(() => {
@@ -369,13 +414,25 @@ function StudentApp({ data }: { data: AppData }) {
   }, [setStore, store.studyRunning]);
 
   useEffect(() => {
-    if (store.studyRunning || store.studyRemaining !== 0) return;
-    if (store.alertSounds.study && store.notificationsEnabled) playTone("study");
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification("منارة الطالب", { body: `انتهى وقت مذاكرة ${store.studySubject}.` });
+    const justCompleted =
+      previousStudyRunningRef.current && !store.studyRunning && store.studyRemaining === 0;
+    previousStudyRunningRef.current = store.studyRunning;
+    if (!justCompleted) return;
+    if (store.alertSounds.study && store.notificationsEnabled && store.notifications.study) {
+      playTone("study");
+    }
+    if (store.notificationsEnabled && store.notifications.study) {
+      showSystemNotification(`انتهى وقت مذاكرة ${store.studySubject}.`);
     }
     setStatus(`انتهى وقت مذاكرة ${store.studySubject}. أحسنت!`);
-  }, [store.studyRemaining, store.studyRunning]);
+  }, [
+    store.alertSounds.study,
+    store.notifications.study,
+    store.notificationsEnabled,
+    store.studyRemaining,
+    store.studyRunning,
+    store.studySubject,
+  ]);
 
   useEffect(() => {
     if (!store.notificationsEnabled) return;
@@ -390,25 +447,34 @@ function StudentApp({ data }: { data: AppData }) {
         store.notifications[key] &&
         time === `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
     );
-    const key = prayerDue ? "prayer" : fixedAlarm?.[0];
+    const key = prayerDue && store.notifications.prayer ? "prayer" : fixedAlarm?.[0];
     if (!key || !store.notifications[key]) return;
     lastAlarmRef.current = minute;
     if (store.alertSounds[key] && store.syncAlertWithNotification) playTone(key as ToneKey);
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification("منارة الطالب", {
-        body: key === "prayer" ? `حان وقت صلاة ${prayerDue?.name}` : `حان موعد ${notificationLabels[key as ToneKey]}.`,
-      });
-    }
+    showSystemNotification(
+      key === "prayer" ? `حان وقت صلاة ${prayerDue?.name}` : `حان موعد ${notificationLabels[key as ToneKey]}.`,
+    );
   }, [now, prayer.entries, store]);
 
-  const saveToneFile = (key: ToneKey, file?: File) => {
+  const saveToneFile = (key: AlarmToneKey, file?: File) => {
     if (!file) return;
+    const desktop = window.manaratDesktop;
+    if (desktop) {
+      void file
+        .arrayBuffer()
+        .then((buffer) => desktop.saveCustomTone(key, file.name, new Uint8Array(buffer)))
+        .then((tone) => {
+          updateCustomTone(key, tone);
+          setStatus(`تم حفظ «${file.name}» كنغمة مخصصة لـ${notificationLabels[key]}.`);
+        })
+        .catch((error: unknown) => {
+          console.error("Could not save custom alert sound", error);
+          setStatus("تعذر حفظ النغمة؛ استخدم ملفاً صوتياً مدعوماً وأصغر من 20 ميغابايت.");
+        });
+      return;
+    }
     const url = URL.createObjectURL(file);
-    setCustomTones((current) => {
-      const old = current[key];
-      if (old) URL.revokeObjectURL(old);
-      return { ...current, [key]: url };
-    });
+    updateCustomTone(key, url);
     setStatus(`تم تعيين «${file.name}» كنغمة مخصصة لـ${notificationLabels[key]}.`);
   };
 
@@ -530,13 +596,6 @@ function StudentApp({ data }: { data: AppData }) {
               playTone={() => playTone("adhkar", true)}
             />
           )}
-          {page === "hajj" && (
-            <HajjScreen
-              store={store}
-              setStore={setStore}
-              playTone={() => playTone("hajj", true)}
-            />
-          )}
           {page === "settings" && (
             <SettingsScreen
               data={data}
@@ -552,7 +611,7 @@ function StudentApp({ data }: { data: AppData }) {
       </div>
 
       <nav className="mobile-nav" aria-label="التنقل">
-        {navItems.filter((item) => item.key !== "hajj").map(({ key, label, icon: Icon }) => (
+        {navItems.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             className={page === key ? "active" : ""}
@@ -563,10 +622,6 @@ function StudentApp({ data }: { data: AppData }) {
             <span>{label}</span>
           </button>
         ))}
-        <button className={page === "hajj" ? "active" : ""} onClick={() => setPage("hajj")} aria-label="الحج والعمرة">
-          <Compass size={20} />
-          <span>المناسك</span>
-        </button>
       </nav>
 
       {status && (
@@ -839,12 +894,6 @@ function HomeScreen({
             <span className="quick-icon"><Sparkles size={22} /></span>
             <strong>الأذكار والسبحة</strong>
             <small>حصن المسلم • أذكار اليوم</small>
-            <span className="quick-arrow"><ChevronLeft size={16} /></span>
-          </button>
-          <button className="quick-card hajj-quick" onClick={() => onNavigate("hajj")}>
-            <span className="quick-icon"><Compass size={22} /></span>
-            <strong>الحج والعمرة</strong>
-            <small>مناسك مرتبة وقائمة متابعة</small>
             <span className="quick-arrow"><ChevronLeft size={16} /></span>
           </button>
           <button className="quick-card exercise-quick" onClick={() => onNavigate("exercises")}>
@@ -1768,91 +1817,6 @@ function AdhkarScreen({
   );
 }
 
-const umrahSteps = [
-  { id: "ihram", title: "الإحرام والنية", detail: "الاغتسال والتطيب قبل الإحرام، ثم عقد نية العمرة من الميقات ولبس لباس الإحرام." },
-  { id: "talbiyah", title: "التلبية", detail: "الإكثار من التلبية: لبيك اللهم عمرة، لبيك اللهم لبيك، لبيك لا شريك لك لبيك." },
-  { id: "tawaf", title: "الطواف بالبيت", detail: "الطواف حول الكعبة سبعة أشواط، مبتدئاً من الحجر الأسود ومنتهياً إليه." },
-  { id: "tawaf-prayer", title: "ركعتا الطواف", detail: "صلاة ركعتين بعد الطواف إن تيسر، دون مزاحمة أو مشقة." },
-  { id: "sai", title: "السعي بين الصفا والمروة", detail: "السعي سبعة أشواط، يبدأ بالصفا وينتهي بالمروة." },
-  { id: "hair", title: "الحلق أو التقصير", detail: "الحلق أو التقصير للرجل، والتقصير من أطراف الشعر للمرأة. وبذلك تتم العمرة." },
-];
-
-const hajjSteps = [
-  { id: "hajj-ihram", title: "الإحرام من الميقات", detail: "الإحرام بالحج أو التمتع من الميقات المحدد، مع النية والتلبية." },
-  { id: "tarwiyah", title: "يوم التروية — ٨ ذي الحجة", detail: "التوجه إلى منى والمبيت بها، مع أداء الصلوات قصراً دون جمع." },
-  { id: "arafah", title: "الوقوف بعرفة — ٩ ذي الحجة", detail: "الوقوف بعرفة إلى الغروب، والإكثار من الدعاء والذكر." },
-  { id: "muzdalifah", title: "المبيت بمزدلفة", detail: "التوجه بعد الغروب إلى مزدلفة، والصلاة والمبيت فيها بحسب الاستطاعة." },
-  { id: "mina", title: "أعمال يوم النحر — ١٠ ذي الحجة", detail: "رمي جمرة العقبة، والهدي للمتمتع والقارن، والحلق أو التقصير، وطواف الإفاضة والسعي بحسب النسك." },
-  { id: "days-tashreeq", title: "أيام التشريق — ١١ إلى ١٣", detail: "المبيت بمنى ورمي الجمرات الثلاث في أيام التشريق وفق الترتيب والوقت الشرعي." },
-  { id: "farewell", title: "طواف الوداع", detail: "طواف الوداع عند مغادرة مكة، ويُعفى منه الحائض والنفساء." },
-];
-
-function HajjScreen({
-  store,
-  setStore,
-  playTone,
-}: {
-  store: Store;
-  setStore: StoreSetter;
-  playTone: () => void;
-}) {
-  const [ritual, setRitual] = useState<"umrah" | "hajj">("umrah");
-  const steps = ritual === "umrah" ? umrahSteps : hajjSteps;
-  const doneCount = steps.filter((step) => store.hajjProgress[`${ritual}:${step.id}`]).length;
-  const percent = Math.round((doneCount / steps.length) * 100);
-  const toggleStep = (id: string) => {
-    const key = `${ritual}:${id}`;
-    setStore((current) => ({
-      ...current,
-      hajjProgress: { ...current.hajjProgress, [key]: !current.hajjProgress[key] },
-    }));
-  };
-
-  return (
-    <div className="screen-stack">
-      <PageHeading icon={Compass} title="الحج والعمرة" subtitle="دليل موجز للمناسك مع قائمة متابعة شخصية وتنبيه مستقل." action={<button className="icon-button" onClick={playTone} title="تجربة نغمة الحج والعمرة"><Volume2 size={19} /></button>} />
-      <section className="hajj-hero">
-        <div className="hajj-hero-symbol"><Compass size={39} /></div>
-        <span className="eyebrow">رحلة إيمانية</span>
-        <h2>خطوات مرتبة لمناسك الحج والعمرة</h2>
-        <p>تابع استعدادك ومناسكك خطوة بخطوة، واحفظ تقدّمك على هذا الجهاز.</p>
-        <div className="hajj-stat-row">
-          <div><strong>{toArabicDigits(doneCount)} / {toArabicDigits(steps.length)}</strong><span>خطوات مكتملة</span></div>
-          <div className="hajj-progress"><div className="progress-track"><span style={{ width: `${percent}%` }} /></div><small>{toArabicDigits(percent)}٪</small></div>
-        </div>
-      </section>
-      <div className="hajj-tabs">
-        <button className={ritual === "umrah" ? "active" : ""} onClick={() => setRitual("umrah")}><Footprints size={18} /> مناسك العمرة</button>
-        <button className={ritual === "hajj" ? "active" : ""} onClick={() => setRitual("hajj")}><Compass size={18} /> مناسك الحج</button>
-      </div>
-      <section className="panel hajj-steps-panel">
-        <div className="panel-heading">
-          <div><span className="section-kicker">{ritual === "umrah" ? "العمرة" : "الحج"}</span><h2>{ritual === "umrah" ? "مسار العمرة" : "محطات الحج"}</h2></div>
-          <button className="text-action" onClick={() => setStore((current) => ({ ...current, hajjProgress: Object.fromEntries(Object.entries(current.hajjProgress).filter(([key]) => !key.startsWith(`${ritual}:`))) }))}><RotateCcw size={14} /> إعادة القائمة</button>
-        </div>
-        <div className="ritual-timeline">
-          {steps.map((step, index) => {
-            const done = store.hajjProgress[`${ritual}:${step.id}`] ?? false;
-            return (
-              <article className={`ritual-step ${done ? "done" : ""}`} key={step.id}>
-                <button className="ritual-check" onClick={() => toggleStep(step.id)} aria-label={done ? "إلغاء الإكمال" : "وضع علامة مكتمل"}>{done ? <Check size={17} /> : toArabicDigits(index + 1)}</button>
-                <div className="ritual-step-content"><div className="ritual-step-title"><h3>{step.title}</h3>{done && <span>مكتمل</span>}</div><p>{step.detail}</p></div>
-              </article>
-            );
-          })}
-        </div>
-        <div className="hajj-disclaimer"><CircleHelp size={17} /><span>هذا ملخص تذكيري لا يغني عن تعلّم الأحكام التفصيلية من جهة موثوقة، ولا سيما عند اختلاف نوع النسك أو وجود عذر.</span></div>
-      </section>
-      <section className="panel hajj-alarm-panel">
-        <div className="panel-icon gold"><Clock3 size={19} /></div>
-        <div className="hajj-alarm-copy"><strong>تنبيه الحج والعمرة</strong><small>موعد يومي مستقل للتذكير بالمناسك والأدعية.</small></div>
-        <input aria-label="موعد تنبيه الحج والعمرة" type="time" value={store.alarmTimes.hajj} onChange={(event) => setStore((current) => ({ ...current, alarmTimes: { ...current.alarmTimes, hajj: event.target.value } }))} />
-        <label className="switch-control"><input type="checkbox" checked={store.notifications.hajj} onChange={(event) => setStore((current) => ({ ...current, notifications: { ...current.notifications, hajj: event.target.checked } }))} /><span /></label>
-      </section>
-    </div>
-  );
-}
-
 function PrayerDialog({
   prayer,
   store,
@@ -1953,13 +1917,39 @@ function SettingsScreen({
   setStatus: (message: string) => void;
   playTone: (key: ToneKey, preview?: boolean) => void;
   stopSound: () => void;
-  saveToneFile: (key: ToneKey, file?: File) => void;
+  saveToneFile: (key: AlarmToneKey, file?: File) => void;
 }) {
   const [latitude, setLatitude] = useState(String(store.latitude));
   const [longitude, setLongitude] = useState(String(store.longitude));
-  const alarmKeys: ToneKey[] = ["prayer", "adhkar", "quran", "hajj", "exercise", "study"];
+  const alarmKeys: AlarmToneKey[] = ["prayer", "adhkar", "quran", "exercise", "study"];
 
-  const requestNotifications = () => {
+  const requestNotifications = async () => {
+    const desktop = window.manaratDesktop;
+    if (desktop) {
+      try {
+        const shown = await desktop.showNotification(
+          "منارة الطالب",
+          "هذا إشعار تجريبي. ستصلك التذكيرات مع النغمة المحددة عند حلول مواعيدها.",
+        );
+        if (
+          shown &&
+          store.notificationsEnabled &&
+          store.notifications.prayer &&
+          store.alertSounds.prayer
+        ) {
+          playTone("prayer", true);
+        }
+        setStatus(
+          shown
+            ? "تم إرسال إشعار تجريبي؛ إذا لم يظهر فتحقق من إعدادات إشعارات Windows."
+            : "إشعارات Windows غير مدعومة على هذا الجهاز.",
+        );
+      } catch (error: unknown) {
+        console.error("Could not send test system notification", error);
+        setStatus("تعذر إرسال الإشعار؛ تحقق من إعدادات إشعارات Windows.");
+      }
+      return;
+    }
     if (!("Notification" in window)) {
       setStatus("الإشعارات غير مدعومة في هذا المتصفح.");
       return;
@@ -2067,16 +2057,16 @@ function SettingsScreen({
                     <label className="tone-select">النغمة<select value={store.tones[key] ?? defaultTones[key]} disabled={!store.notificationsEnabled} onChange={(event) => setStore((current) => ({ ...current, tones: { ...current.tones, [key]: event.target.value } }))}>{toneOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
                     <label className="switch-sound"><input type="checkbox" checked={store.alertSounds[key] ?? false} disabled={!store.notificationsEnabled || !store.notifications[key]} onChange={(event) => setStore((current) => ({ ...current, alertSounds: { ...current.alertSounds, [key]: event.target.checked } }))} /><Volume2 size={16} /><span>صوت</span></label>
                     <button className="icon-button soft" title="تجربة النغمة" onClick={() => playTone(key, true)}><Play size={15} /></button>
-                    <label className="upload-tone" title="اختيار نغمة مخصصة"><input type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg" onChange={(event) => saveToneFile(key, event.target.files?.[0])} /><AudioLines size={15} /> تخصيص</label>
+                    <label className="upload-tone" title="اختيار نغمة مخصصة"><input type="file" accept=".mp3,.m4a,.wav,.ogg,.webm" onChange={(event) => saveToneFile(key, event.target.files?.[0])} /><AudioLines size={15} /> تخصيص</label>
                   </div>
                 </article>
               ))}
             </div>
             <div className="settings-actions">
-              <button className="button button-outline" onClick={requestNotifications}><BellPermissionIcon /> السماح بإشعارات النظام</button>
+              <button className="button button-outline" onClick={requestNotifications}><BellPermissionIcon />{window.manaratDesktop ? " اختبار إشعار Windows" : " السماح بإشعارات النظام"}</button>
               <button className="button button-danger-outline" onClick={() => { stopSound(); setStatus("تم إيقاف الصوت الحالي."); }}><X size={15} /> إيقاف الصوت</button>
             </div>
-            <small className="field-hint">تظهر إشعارات النظام أثناء تشغيل التطبيق. تشغيل الصوت في الخلفية بعد إغلاق التطبيق يعتمد على نظام التشغيل.</small>
+            <small className="field-hint">{window.manaratDesktop ? "على Windows، إغلاق النافذة يخفي التطبيق في شريط النظام؛ تبقى التذكيرات والنغمات تعمل ويبدأ التطبيق تلقائياً مع تسجيل الدخول." : "تظهر إشعارات النظام أثناء تشغيل المتصفح، ويجب السماح بها من زر الإعدادات."}</small>
           </section>
 
           <section className="panel settings-card">
