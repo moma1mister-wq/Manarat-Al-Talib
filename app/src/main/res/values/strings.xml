@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">منارة الطالب</string>
+    <string name="welcome_title">مرحباً بك في منارة الطالب</string>
+    <string name="welcome_subtitle">كلية الحاسبات والذكاء الاصطناعي - جامعة الأزهر</string>
+    <string name="username_label">اسم المستخدم (Username)</string>
+    <string name="password_label">كلمة المرور (Password)</string>
+    <string name="login_button">تسجيل الدخول (Log In)</string>
+    <string name="create_account_button">إنشاء حساب محلي (Create Account)</string>
+    <string name="nav_home">الرئيسية</string>
+    <string name="nav_schedule">الجدول</string>
+    <string name="nav_quran">المصحف</string>
+    <string name="nav_exercises">التمارين</string>
+    <string name="nav_prices">الأذكار</string>
+    <string name="nav_settings">الإعدادات</string>
+</resources>

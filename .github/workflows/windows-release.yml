@@ -1,0 +1,241 @@
+name: Build Windows desktop EXE
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Verify build environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          node --version
+          if ($LASTEXITCODE -ne 0) { throw "Node.js is unavailable." }
+          npm --version
+          if ($LASTEXITCODE -ne 0) { throw "npm is unavailable." }
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows desktop application
+        id: build
+        run: npm run electron:dist
+
+      - name: Verify Windows EXE
+        id: verify
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $package = Get-Content -LiteralPath "package.json" -Raw | ConvertFrom-Json
+          $expectedName = "$($package.build.productName)-$($package.version)-Windows-Setup.exe"
+          $expectedPath = Join-Path -Path "release" -ChildPath $expectedName
+
+          if (-not (Test-Path -LiteralPath $expectedPath -PathType Leaf)) {
+            if (Test-Path -LiteralPath "release" -PathType Container) {
+              $found = @(Get-ChildItem -LiteralPath "release" -Filter "*.exe" -File | Select-Object -ExpandProperty FullName)
+              Write-Host "Discovered EXE files in the application output directory:"
+              if ($found.Count -gt 0) { $found | ForEach-Object { Write-Host $_ } }
+              else { Write-Host "No EXE files found." }
+            }
+            throw "Expected application installer was not produced: $expectedPath"
+          }
+
+          $exe = Get-Item -LiteralPath $expectedPath
+          if ($exe.PSIsContainer -or $exe.Length -le 0 -or $exe.Extension -cne ".exe") {
+            throw "The expected Windows application EXE is invalid or empty: $expectedPath"
+          }
+
+          $stream = [System.IO.File]::OpenRead($exe.FullName)
+          try {
+            $signature = New-Object byte[] 2
+            $bytesRead = $stream.Read($signature, 0, 2)
+          } finally {
+            $stream.Dispose()
+          }
+          if ($bytesRead -ne 2 -or $signature[0] -ne 0x4D -or $signature[1] -ne 0x5A) {
+            throw "The expected application file does not have a Windows executable signature."
+          }
+
+          Write-Host "Verified Windows application installer: $($exe.FullName) ($($exe.Length) bytes)"
+          "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload Windows EXE artifact
+        id: artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe-build
+          path: ${{ steps.verify.outputs.exe_path }}
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Prepare EXE release asset
+        id: prepare
+        shell: pwsh
+        env:
+          VERIFIED_EXE: ${{ steps.verify.outputs.exe_path }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not (Test-Path -LiteralPath $env:VERIFIED_EXE -PathType Leaf)) {
+            throw "Verified application EXE is missing."
+          }
+          $releaseDirectory = Join-Path -Path $env:RUNNER_TEMP -ChildPath "windows-exe-release"
+          New-Item -ItemType Directory -Path $releaseDirectory -Force | Out-Null
+          $releaseAsset = Join-Path -Path $releaseDirectory -ChildPath "app-windows.exe"
+          Copy-Item -LiteralPath $env:VERIFIED_EXE -Destination $releaseAsset
+          $asset = Get-Item -LiteralPath $releaseAsset
+          if ($asset.Length -le 0 -or $asset.Extension -cne ".exe" -or $asset.Name -cne "app-windows.exe") {
+            throw "Prepared release asset is invalid."
+          }
+          "asset_path=$($asset.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Publish EXE to GitHub Releases
+        id: publish
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ASSET: ${{ steps.prepare.outputs.asset_path }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not (Get-Command "gh" -ErrorAction SilentlyContinue)) {
+            throw "GitHub CLI (gh) is unavailable on the Windows runner."
+          }
+          gh --version
+          if ($LASTEXITCODE -ne 0) { throw "Could not verify GitHub CLI." }
+
+          $asset = Get-Item -LiteralPath $env:RELEASE_ASSET -ErrorAction Stop
+          if ($asset.PSIsContainer -or $asset.Length -le 0 -or $asset.Extension -cne ".exe" -or $asset.Name -cne "app-windows.exe") {
+            throw "Release asset must be a non-empty app-windows.exe file."
+          }
+
+          $tag = "windows-exe-build-$env:GITHUB_RUN_NUMBER-$env:GITHUB_RUN_ATTEMPT"
+          $tagLookup = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$tag" 2>&1
+          $tagLookupExitCode = $LASTEXITCODE
+          if ($tagLookupExitCode -eq 0) {
+            throw "Release tag already exists; refusing to reuse or overwrite it: $tag"
+          }
+          if (($tagLookup | Out-String) -notmatch "404|Not Found") {
+            throw "Could not safely verify that release tag $tag is unused."
+          }
+
+          $title = "Windows EXE Build #$env:GITHUB_RUN_NUMBER"
+          $notes = @"
+          Automatically generated Windows Desktop application executable for testing.
+
+          Built by GitHub Actions.
+          GitHub Actions run number: $env:GITHUB_RUN_NUMBER
+          GitHub Actions run attempt: $env:GITHUB_RUN_ATTEMPT
+          Source commit SHA: $env:GITHUB_SHA
+
+          This is the project's NSIS setup installer, not an extracted portable application binary.
+          It is intended for testing, is not necessarily production-signed, and is not a Microsoft Store release.
+          "@
+
+          gh release create $tag $asset.FullName `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
+            --title $title `
+            --notes $notes `
+            --latest
+          if ($LASTEXITCODE -ne 0) { throw "GitHub Release creation failed for $tag." }
+
+      - name: Report EXE download result
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          ARTIFACT_OUTCOME: ${{ steps.artifact.outcome }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "windows-exe-build-$env:GITHUB_RUN_NUMBER-$env:GITHUB_RUN_ATTEMPT"
+          $directUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/latest/download/app-windows.exe"
+          if ($env:PUBLISH_OUTCOME -ne "success") {
+            $buildSucceeded = $env:BUILD_OUTCOME -eq "success" -and $env:VERIFY_OUTCOME -eq "success"
+            $artifactUploaded = $env:ARTIFACT_OUTCOME -eq "success"
+            if ($buildSucceeded) {
+              $buildStatus = "The Windows EXE build succeeded."
+            } else {
+              $buildStatus = "The Windows EXE build did not complete successfully."
+            }
+            if ($artifactUploaded) {
+              $artifactStatus = "The Actions artifact windows-exe-build remains available as a backup."
+            } else {
+              $artifactStatus = "The Actions artifact windows-exe-build was not uploaded."
+            }
+            Write-Warning "GitHub Release publishing did not complete. $buildStatus $artifactStatus No new direct latest-release download is claimed."
+            @"
+          ## EXE download result
+
+          **Warning:** GitHub Release publishing did not complete. $buildStatus $artifactStatus This run's executable is not confirmed at the direct latest-release URL.
+          "@ | Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            exit 0
+          }
+
+          $releaseJson = gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName,name,url,assets 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "The release command succeeded, but GitHub Release verification failed. The direct download URL is not confirmed."
+            @"
+          ## EXE download result
+
+          **Warning:** Release publishing was reported successful, but it could not be verified. The Actions artifact `windows-exe-build` remains available as a backup. Do not assume the direct latest-release URL is ready.
+          "@ | Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            exit 0
+          }
+
+          try {
+            $release = $releaseJson | ConvertFrom-Json -ErrorAction Stop
+          } catch {
+            Write-Warning "GitHub Release returned metadata that could not be parsed. The direct download URL is not confirmed."
+            @"
+          ## EXE download result
+
+          **Warning:** Release metadata could not be parsed. The Actions artifact `windows-exe-build` remains available as a backup. Do not assume the direct latest-release URL is ready.
+          "@ | Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            exit 0
+          }
+          $releaseAssets = @($release.assets | Where-Object { $_.name -ceq "app-windows.exe" })
+          if ($release.tagName -cne $tag -or $release.name -cne "Windows EXE Build #$env:GITHUB_RUN_NUMBER" -or $releaseAssets.Count -ne 1) {
+            Write-Warning "The release was created, but its metadata or app-windows.exe asset did not pass verification."
+            @"
+          ## EXE download result
+
+          **Warning:** Release metadata or the `app-windows.exe` asset could not be verified. The Actions artifact `windows-exe-build` remains available as a backup.
+          "@ | Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            exit 0
+          }
+
+          Write-Host "Release tag: $($release.tagName)"
+          Write-Host "Release title: $($release.name)"
+          Write-Host "Release page: $($release.url)"
+          Write-Host "Executable asset: app-windows.exe"
+          @"
+          ## DIRECT EXE DOWNLOAD
+
+          [Download app-windows.exe]($directUrl)
+
+          Release tag: $($release.tagName)  
+          Release title: $($release.name)  
+          Release page: $($release.url)
+
+          The normal Actions artifact `windows-exe-build` remains available as a backup.
+          "@ | Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
